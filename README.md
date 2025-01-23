@@ -14,6 +14,9 @@ Analyze RGB and Brightness: Extracts pixel data from the selected ROI, focusing 
 Percentage Calculation: Applies smoothing filters and brightness thresholds to deliver consistent and accurate bar percentages.
 Live Feedback: Outputs live data (HP: 100%, Mana: 72%) and supports triggers for predefined thresholds.
 
+Setup: If it's not the exe, then make sure you have the latest python installed and run the command 'pip install -r requirements.txt'
+in CMD. If you are using the EXE just run it.
+
 How to use: I've added images of the bars with the most optimal points to mark as your bar.
 When the tool is in the foreground, press set HP/Mana bar, point the crosser to the desired point, and press F2. the second point, and press F3.
 After both or one is set, press 'start monitoring'.
