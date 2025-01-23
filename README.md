@@ -14,6 +14,10 @@ Analyze RGB and Brightness: Extracts pixel data from the selected ROI, focusing 
 Percentage Calculation: Applies smoothing filters and brightness thresholds to deliver consistent and accurate bar percentages.
 Live Feedback: Outputs live data (HP: 100%, Mana: 72%) and supports triggers for predefined thresholds.
 
+How to use: I've added images of the bars with the most optimal points to mark as your bar.
+When the tool is in the foreground, press set HP/Mana bar, point the crosser to the desired point, and press F2. the second point, and press F3.
+After both or one is set, press 'start monitoring'.
+
 Use Cases:
 Game Automation: Automate tasks such as healing or skill activation based on HP/mana percentages.
 Performance Insights: Analyze bar changes for strategic gameplay or to study in-game mechanics.
