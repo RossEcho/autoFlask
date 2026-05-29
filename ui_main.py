@@ -1,3 +1,9 @@
+from ui_qt import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
 import json
 import sys
 import tkinter as tk
