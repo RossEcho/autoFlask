@@ -47,14 +47,14 @@ class BarMonitorApp(tk.Tk):
 
         self.monitor.hp_coords = self.clean_coords(settings.get("hp_coords"))
         self.monitor.mana_coords = self.clean_coords(settings.get("mana_coords"))
-        self.monitor.aura_coords = self.clean_coords(settings.get("aura_coords"))
+        self.monitor.aura_color = self.clean_color(settings.get("aura_color"))
         self.monitor.hp_threshold = float(settings.get("hp_threshold", self.monitor.hp_threshold))
         self.monitor.mana_threshold = float(settings.get("mana_threshold", self.monitor.mana_threshold))
         self.monitor.hp_key = str(settings.get("hp_key", self.monitor.hp_key))
         self.monitor.mana_key = str(settings.get("mana_key", self.monitor.mana_key))
         self.monitor.poll_interval = float(settings.get("poll_interval", self.monitor.poll_interval))
         self.monitor.debug_logging = bool(settings.get("debug_logging", self.monitor.debug_logging))
-        return bool(self.monitor.hp_coords or self.monitor.mana_coords or self.monitor.aura_coords)
+        return bool(self.monitor.hp_coords or self.monitor.mana_coords or self.monitor.aura_color)
 
     def clean_coords(self, coords):
         if not isinstance(coords, list) or len(coords) != 4:
@@ -64,11 +64,19 @@ class BarMonitorApp(tk.Tk):
         except (TypeError, ValueError):
             return None
 
+    def clean_color(self, color):
+        if not isinstance(color, list) or len(color) != 3:
+            return None
+        try:
+            return tuple(max(0, min(255, int(value))) for value in color)
+        except (TypeError, ValueError):
+            return None
+
     def save_settings(self):
         settings = {
             "hp_coords": list(self.monitor.hp_coords) if self.monitor.hp_coords else None,
             "mana_coords": list(self.monitor.mana_coords) if self.monitor.mana_coords else None,
-            "aura_coords": list(self.monitor.aura_coords) if self.monitor.aura_coords else None,
+            "aura_color": list(self.monitor.aura_color) if self.monitor.aura_color else None,
             "hp_threshold": self.monitor.hp_threshold,
             "mana_threshold": self.monitor.mana_threshold,
             "hp_key": self.monitor.hp_key,
@@ -217,7 +225,7 @@ class BarMonitorApp(tk.Tk):
         aura_settings.columnconfigure(0, weight=1)
         ttk.Label(
             aura_settings,
-            text="Set the thin green bar with F2 and F3. Aura Bot clicks below its center every second.",
+            text="Set the thin green bar with F2 and F3. Aura Bot searches for that exact color and clicks below it every second.",
             style="Panel.TLabel",
             wraplength=480
         ).grid(row=0, column=0, columnspan=3, sticky="w")
@@ -371,11 +379,19 @@ class BarMonitorApp(tk.Tk):
         elif bar_type == "Mana":
             self.monitor.mana_coords = bar_coords
         else:
-            self.monitor.aura_coords = bar_coords
+            aura_color = self.monitor.sample_exact_color(bar_coords)
+            if not aura_color:
+                self.status_label.config(text="Idle")
+                self.update_log("Could not sample Aura bar color.")
+                return
+            self.monitor.aura_color = aura_color
 
         self.save_settings()
         self.status_label.config(text="Idle")
-        self.update_log(f"{bar_type} bar coordinates saved successfully.")
+        if bar_type == "Aura":
+            self.update_log(f"Aura exact color saved: RGB {self.monitor.aura_color}.")
+        else:
+            self.update_log(f"{bar_type} bar coordinates saved successfully.")
 
     def reset_bar_settings(self):
         self.monitor.hp_coords = None
@@ -390,11 +406,11 @@ class BarMonitorApp(tk.Tk):
 
     def reset_aura_bar(self):
         self.monitor.stop_aura_bot()
-        self.monitor.aura_coords = None
+        self.monitor.aura_color = None
         self.save_settings()
         self.update_aura_button()
         self.status_label.config(text="Idle")
-        self.update_log("Saved Aura bar coordinates reset.")
+        self.update_log("Saved Aura bar color reset.")
 
     def update_hp_threshold(self):
         """Update HP threshold from the scale."""

@@ -25,7 +25,7 @@ class FastBarMonitor:
         self.previous_mana_percentage = 100
         self.poll_interval = 0.15
         self.debug_logging = False
-        self.aura_coords = None
+        self.aura_color = None
         self.aura_monitoring = False
         self.aura_stop_event = threading.Event()
         self.aura_click_interval = 1.0
@@ -303,21 +303,58 @@ class FastBarMonitor:
             self.monitoring = True
             self.log("Monitoring started.")
             
-    def get_aura_click_point(self):
-        if not self.aura_coords:
+    def sample_exact_color(self, coords):
+        if not coords or coords[0] == coords[2] or coords[1] == coords[3]:
             return None
 
-        x1, y1, x2, y2 = self.aura_coords
-        click_x = int((x1 + x2) / 2)
-        click_y = max(y1, y2) + self.aura_click_offset
+        left, right = sorted((coords[0], coords[2]))
+        top, bottom = sorted((coords[1], coords[3]))
+        screenshot = pyautogui.screenshot()
+        roi = np.array(screenshot.crop((left, top, right, bottom)))
+
+        if roi.size == 0:
+            return None
+
+        pixels = roi.reshape(-1, 3)
+        colors, counts = np.unique(pixels, axis=0, return_counts=True)
+        color = colors[int(np.argmax(counts))]
+        return tuple(int(channel) for channel in color)
+
+    def find_aura_click_point(self):
+        if not self.aura_color:
+            return None
+
+        screenshot = pyautogui.screenshot()
+        screen = np.array(screenshot)
+        target = np.array(self.aura_color, dtype=np.uint8)
+        mask = np.all(screen == target, axis=2).astype(np.uint8)
+
+        match_count = int(np.count_nonzero(mask))
+        if match_count <= 0:
+            return None
+
+        component_count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+        if component_count <= 1:
+            return None
+
+        largest_label = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        left = stats[largest_label, cv2.CC_STAT_LEFT]
+        top = stats[largest_label, cv2.CC_STAT_TOP]
+        width = stats[largest_label, cv2.CC_STAT_WIDTH]
+        height = stats[largest_label, cv2.CC_STAT_HEIGHT]
+        click_x = int(left + width / 2)
+        click_y = int(top + height + self.aura_click_offset)
+
+        self.debug_log(f"Aura exact matches: {match_count}")
         return click_x, click_y
 
     def start_aura_bot(self):
         while not self.aura_stop_event.is_set():
-            click_point = self.get_aura_click_point()
+            click_point = self.find_aura_click_point()
             if not click_point:
-                self.log("Aura bar is not set.")
-                break
+                self.debug_log("Aura color not found on screen.")
+                self.aura_stop_event.wait(self.aura_click_interval)
+                continue
 
             pyautogui.click(*click_point, button="left")
             self.debug_log(f"Aura click at {click_point[0]}, {click_point[1]}")
@@ -330,8 +367,8 @@ class FastBarMonitor:
             self.stop_aura_bot()
             return
 
-        if not self.aura_coords:
-            self.log("Set Aura bar before starting Aura Bot.")
+        if not self.aura_color:
+            self.log("Set Aura bar color before starting Aura Bot.")
             return
 
         self.aura_stop_event.clear()
