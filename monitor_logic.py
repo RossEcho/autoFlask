@@ -23,12 +23,18 @@ class FastBarMonitor:
         self.log_callback = log_callback
         self.previous_hp_percentage = 100
         self.previous_mana_percentage = 100
+        self.poll_interval = 0.15
+        self.debug_logging = False
 
     def log(self, message):
         """Log messages to both the UI log window and the console."""
         if self.log_callback:
-            self.log_callback(message + "\n")
+            self.log_callback(message)
         print(message)
+
+    def debug_log(self, message):
+        if self.debug_logging:
+            self.log(message)
 
     def create_color_mask(self, roi, color):
         """
@@ -40,8 +46,8 @@ class FastBarMonitor:
 
         # Debug log
         h_mean, s_mean, v_mean = np.mean(H), np.mean(S), np.mean(V)
-        self.log(f"{color.capitalize()} HSV Means - H: {h_mean:.1f}, "
-                 f"S: {s_mean:.1f}, V: {v_mean:.1f}")
+        self.debug_log(f"{color.capitalize()} HSV Means - H: {h_mean:.1f}, "
+                       f"S: {s_mean:.1f}, V: {v_mean:.1f}")
 
         # Example broad ranges for 'blue' and 'red'
         if color == "blue":
@@ -71,13 +77,14 @@ class FastBarMonitor:
 
         return color_mask
 
-    def capture_roi(self, coords):
+    def capture_roi(self, coords, screenshot=None):
         """Capture the ROI and optionally save for debugging."""
         if not coords or coords[0] == coords[2] or coords[1] == coords[3]:
             self.log("Error: Invalid coordinates. Please set the bar positions again.")
             return None
 
-        screenshot = pyautogui.screenshot()
+        if screenshot is None:
+            screenshot = pyautogui.screenshot()
         roi = np.array(screenshot.crop(coords))
 
         if roi.size == 0:
@@ -102,11 +109,11 @@ class FastBarMonitor:
         if color == "blue":
             # Blue ratio => more blue relative to red+green
             dominance = (blue_channel + 1.0) / (red_channel + green_channel + 1.0)
-            self.log(f"Blue Ratio - Max: {np.max(dominance):.3f}, Min: {np.min(dominance):.3f}, Mean: {np.mean(dominance):.3f}")
+            self.debug_log(f"Blue Ratio - Max: {np.max(dominance):.3f}, Min: {np.min(dominance):.3f}, Mean: {np.mean(dominance):.3f}")
         elif color == "red":
             # Red ratio => more red relative to green+blue
             dominance = (red_channel + 1.0) / (green_channel + blue_channel + 1.0)
-            self.log(f"Red Ratio - Max: {np.max(dominance):.3f}, Min: {np.min(dominance):.3f}, Mean: {np.mean(dominance):.3f}")
+            self.debug_log(f"Red Ratio - Max: {np.max(dominance):.3f}, Min: {np.min(dominance):.3f}, Mean: {np.mean(dominance):.3f}")
         else:
             raise ValueError("Unsupported color")
 
@@ -169,8 +176,8 @@ class FastBarMonitor:
         percentage = max(0, min(100, percentage))
         smoothed_percentage = self.smooth_percentage(percentage, buffer)
 
-        self.log(f"{color.capitalize()} Mask - Current Pixels: {filled_pixels}, "
-                 f"Reference: {reference_pixels}, Smoothed %: {smoothed_percentage:.2f}%")
+        self.debug_log(f"{color.capitalize()} Mask - Current Pixels: {filled_pixels}, "
+                       f"Reference: {reference_pixels}, Smoothed %: {smoothed_percentage:.2f}%")
         return smoothed_percentage
 
     def set_hp_bar(self):
@@ -228,10 +235,14 @@ class FastBarMonitor:
         """Start monitoring the bars for changes in a loop until stop_event is triggered."""
         while not self.stop_event.is_set():
             log_output = ""
+            screenshot = None
+
+            if self.mana_coords or self.hp_coords:
+                screenshot = pyautogui.screenshot()
 
             # Monitor Mana Bar
             if self.mana_coords:
-                mana_roi = self.capture_roi(self.mana_coords)
+                mana_roi = self.capture_roi(self.mana_coords, screenshot)
                 if mana_roi is not None:
                     mana_percentage = self.calculate_percentage(
                         mana_roi, 
@@ -250,7 +261,7 @@ class FastBarMonitor:
 
             # Monitor HP Bar
             if self.hp_coords:
-                hp_roi = self.capture_roi(self.hp_coords)
+                hp_roi = self.capture_roi(self.hp_coords, screenshot)
                 if hp_roi is not None:
                     hp_percentage = self.calculate_percentage(
                         hp_roi, 
@@ -269,9 +280,9 @@ class FastBarMonitor:
 
             # Output logs each iteration
             if log_output:
-                self.log(log_output.strip())
+                self.debug_log(log_output.strip())
 
-            time.sleep(0.1)  # small delay to avoid busy-wait
+            time.sleep(self.poll_interval)  # small delay to avoid busy-wait
 
 
     def toggle_monitoring(self):
