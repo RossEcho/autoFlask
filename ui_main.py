@@ -1,7 +1,13 @@
+import json
+import sys
 import tkinter as tk
 from tkinter import ttk
 from monitor_logic import FastBarMonitor
+from pathlib import Path
 from queue import Empty, Queue
+
+
+SETTINGS_FILENAME = "auto_flask_settings.json"
 
 
 class BarMonitorApp(tk.Tk):
@@ -14,11 +20,64 @@ class BarMonitorApp(tk.Tk):
         self.log_queue = Queue()
         self.coord_session = None
         self.monitor = FastBarMonitor(self.update_log)
+        self.settings_path = self.get_settings_path()
+        self.loaded_bar_settings = self.load_settings()
 
         self.configure(bg="#101820")
         self.create_styles()
         self.create_widgets()
         self.after(80, self.flush_log_queue)
+        if self.loaded_bar_settings:
+            self.update_log("Saved bar settings loaded.")
+
+    def get_settings_path(self):
+        app_path = Path(sys.executable if getattr(sys, "frozen", False) else __file__)
+        return app_path.resolve().parent / SETTINGS_FILENAME
+
+    def load_settings(self):
+        if not self.settings_path.exists():
+            return False
+
+        try:
+            settings = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            self.update_log(f"Could not load saved settings: {error}")
+            return False
+
+        self.monitor.hp_coords = self.clean_coords(settings.get("hp_coords"))
+        self.monitor.mana_coords = self.clean_coords(settings.get("mana_coords"))
+        self.monitor.hp_threshold = float(settings.get("hp_threshold", self.monitor.hp_threshold))
+        self.monitor.mana_threshold = float(settings.get("mana_threshold", self.monitor.mana_threshold))
+        self.monitor.hp_key = str(settings.get("hp_key", self.monitor.hp_key))
+        self.monitor.mana_key = str(settings.get("mana_key", self.monitor.mana_key))
+        self.monitor.poll_interval = float(settings.get("poll_interval", self.monitor.poll_interval))
+        self.monitor.debug_logging = bool(settings.get("debug_logging", self.monitor.debug_logging))
+        return bool(self.monitor.hp_coords or self.monitor.mana_coords)
+
+    def clean_coords(self, coords):
+        if not isinstance(coords, list) or len(coords) != 4:
+            return None
+        try:
+            return tuple(int(value) for value in coords)
+        except (TypeError, ValueError):
+            return None
+
+    def save_settings(self):
+        settings = {
+            "hp_coords": list(self.monitor.hp_coords) if self.monitor.hp_coords else None,
+            "mana_coords": list(self.monitor.mana_coords) if self.monitor.mana_coords else None,
+            "hp_threshold": self.monitor.hp_threshold,
+            "mana_threshold": self.monitor.mana_threshold,
+            "hp_key": self.monitor.hp_key,
+            "mana_key": self.monitor.mana_key,
+            "poll_interval": self.monitor.poll_interval,
+            "debug_logging": self.monitor.debug_logging
+        }
+
+        try:
+            self.settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        except OSError as error:
+            self.update_log(f"Could not save settings: {error}")
 
     def create_styles(self):
         self.style = ttk.Style(self)
@@ -109,6 +168,7 @@ class BarMonitorApp(tk.Tk):
         controls_frame = ttk.Frame(shell)
         controls_frame.grid(row=5, column=0, sticky="ew")
         controls_frame.columnconfigure(0, weight=1)
+        controls_frame.columnconfigure(1, weight=0)
         self.start_pause_button = ttk.Button(
             controls_frame,
             text="Start Monitoring",
@@ -116,6 +176,11 @@ class BarMonitorApp(tk.Tk):
             command=self.toggle_monitoring
         )
         self.start_pause_button.grid(row=0, column=0, sticky="ew")
+        ttk.Button(
+            controls_frame,
+            text="Reset Bars",
+            command=self.reset_bar_settings
+        ).grid(row=0, column=1, sticky="e", padx=(12, 0))
 
     def create_bar_panel(self, parent, row, name, color, threshold, key, value_var, set_command, threshold_command, key_command):
         frame = ttk.LabelFrame(parent, text=f"{name} Settings", padding=12)
@@ -211,19 +276,33 @@ class BarMonitorApp(tk.Tk):
         else:
             self.monitor.mana_coords = bar_coords
 
+        self.save_settings()
         self.status_label.config(text="Idle")
-        self.update_log(f"{bar_type} bar coordinates set successfully.")
+        self.update_log(f"{bar_type} bar coordinates saved successfully.")
+
+    def reset_bar_settings(self):
+        self.monitor.hp_coords = None
+        self.monitor.mana_coords = None
+        self.monitor.hp_buffer.clear()
+        self.monitor.mana_buffer.clear()
+        self.monitor.previous_hp_percentage = 100
+        self.monitor.previous_mana_percentage = 100
+        self.save_settings()
+        self.status_label.config(text="Monitoring" if self.monitor.monitoring else "Idle")
+        self.update_log("Saved bar coordinates reset.")
 
     def update_hp_threshold(self):
         """Update HP threshold from the scale."""
         self.monitor.hp_threshold = self.hp_threshold_scale.get()
         self.hp_threshold_value.set(f"{self.monitor.hp_threshold:.0f}%")
+        self.save_settings()
         self.update_log(f"HP Threshold updated to {self.monitor.hp_threshold:.0f}%")
 
     def update_mana_threshold(self):
         """Update Mana threshold from the scale."""
         self.monitor.mana_threshold = self.mana_threshold_scale.get()
         self.mana_threshold_value.set(f"{self.monitor.mana_threshold:.0f}%")
+        self.save_settings()
         self.update_log(f"Mana Threshold updated to {self.monitor.mana_threshold:.0f}%")
 
     def update_hp_key(self):
@@ -231,6 +310,7 @@ class BarMonitorApp(tk.Tk):
         self.monitor.hp_key = self.hp_key_entry.get().strip() or self.monitor.hp_key
         self.hp_key_entry.delete(0, tk.END)
         self.hp_key_entry.insert(0, self.monitor.hp_key)
+        self.save_settings()
         self.update_log(f"HP Flask Key updated to '{self.monitor.hp_key}'")
 
     def update_mana_key(self):
@@ -238,17 +318,20 @@ class BarMonitorApp(tk.Tk):
         self.monitor.mana_key = self.mana_key_entry.get().strip() or self.monitor.mana_key
         self.mana_key_entry.delete(0, tk.END)
         self.mana_key_entry.insert(0, self.monitor.mana_key)
+        self.save_settings()
         self.update_log(f"Mana Flask Key updated to '{self.monitor.mana_key}'")
 
     def update_poll_interval(self):
         interval_ms = int(self.poll_interval_scale.get())
         self.monitor.poll_interval = interval_ms / 1000
         self.poll_interval_value.set(f"{interval_ms} ms")
+        self.save_settings()
         self.update_log(f"Poll interval updated to {interval_ms} ms")
 
     def update_debug_logging(self):
         self.monitor.debug_logging = self.debug_logging_var.get()
         state = "enabled" if self.monitor.debug_logging else "disabled"
+        self.save_settings()
         self.update_log(f"Verbose debug log {state}.")
 
     def toggle_monitoring(self):
