@@ -25,6 +25,11 @@ class FastBarMonitor:
         self.previous_mana_percentage = 100
         self.poll_interval = 0.15
         self.debug_logging = False
+        self.aura_coords = None
+        self.aura_monitoring = False
+        self.aura_stop_event = threading.Event()
+        self.aura_click_interval = 1.0
+        self.aura_click_offset = 12
 
     def log(self, message):
         """Log messages to both the UI log window and the console."""
@@ -298,5 +303,47 @@ class FastBarMonitor:
             self.monitoring = True
             self.log("Monitoring started.")
             
+    def get_aura_click_point(self):
+        if not self.aura_coords:
+            return None
+
+        x1, y1, x2, y2 = self.aura_coords
+        click_x = int((x1 + x2) / 2)
+        click_y = max(y1, y2) + self.aura_click_offset
+        return click_x, click_y
+
+    def start_aura_bot(self):
+        while not self.aura_stop_event.is_set():
+            click_point = self.get_aura_click_point()
+            if not click_point:
+                self.log("Aura bar is not set.")
+                break
+
+            pyautogui.click(*click_point, button="left")
+            self.debug_log(f"Aura click at {click_point[0]}, {click_point[1]}")
+            self.aura_stop_event.wait(self.aura_click_interval)
+
+        self.aura_monitoring = False
+
+    def toggle_aura_bot(self):
+        if self.aura_monitoring:
+            self.stop_aura_bot()
+            return
+
+        if not self.aura_coords:
+            self.log("Set Aura bar before starting Aura Bot.")
+            return
+
+        self.aura_stop_event.clear()
+        aura_thread = threading.Thread(target=self.start_aura_bot, daemon=True)
+        aura_thread.start()
+        self.aura_monitoring = True
+        self.log("Aura Bot started.")
+
+    def stop_aura_bot(self):
+        if self.aura_monitoring:
+            self.aura_stop_event.set()
+            self.aura_monitoring = False
+            self.log("Aura Bot stopped.")
     
 
